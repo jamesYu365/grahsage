@@ -9,7 +9,7 @@ import torch.nn as nn
 from torch.nn import init
 import torch.nn.functional as F
 
-from layers import MeanAggregator,PoolAggregator,pool_max,pool_mean
+from layers import MeanAggregator,PoolAggregator,pool_max,pool_mean,LSTMAggregator,AttentionAggregator
 
 
 class Encoder(nn.Module):
@@ -36,7 +36,7 @@ class Encoder(nn.Module):
         if self.aggregator.__class__.__name__=='MeanAggregator':
             self.weight = nn.Parameter(
                 torch.FloatTensor(embed_dim, self.feat_dim if self.gcn else 2 * self.feat_dim))
-        elif self.aggregator.__class__.__name__=='PoolAggregator':
+        else:
             assert hidden_dim!=None,'you must input hidden_dim when using pool aggerator'
             self.weight = nn.Parameter(
                 torch.FloatTensor(embed_dim, self.hidden_dim if self.gcn else (self.hidden_dim +self.feat_dim)))
@@ -70,7 +70,7 @@ class Encoder(nn.Module):
 
 class SupervisedGraphSage(nn.Module):
     def __init__(self, feature_dim,embed_dim,
-            num_classes,adj_lists,agg_method,
+            num_classes,adj_lists,agg_method,bidirectional=None,
             num_sample=10, hidden_dim=None,
             gcn=False, cuda=False):
         """
@@ -91,6 +91,11 @@ class SupervisedGraphSage(nn.Module):
             self.agg1 = MeanAggregator(cuda=cuda)
         elif agg_method=='pool':
             self.agg1 = PoolAggregator(feature_dim,hidden_dim,pool_fn=pool_mean, cuda=cuda)
+        elif agg_method=='LSTM':
+            self.agg1=LSTMAggregator(feature_dim,hidden_dim,bidirectional=bidirectional, cuda=cuda)
+        elif agg_method=='attention':
+            self.agg1=AttentionAggregator(feature_dim,hidden_dim, cuda=cuda)
+        
         self.enc1 = Encoder(feature_dim, embed_dim, adj_lists, self.agg1,
                        hidden_dim=hidden_dim, gcn=gcn, cuda=cuda)
        
@@ -98,7 +103,11 @@ class SupervisedGraphSage(nn.Module):
             self.agg2 = MeanAggregator(cuda=cuda)
         elif agg_method=='pool':
             self.agg2 = PoolAggregator(embed_dim,hidden_dim,pool_fn=pool_mean, cuda=cuda)
-
+        elif agg_method=='LSTM':
+            self.agg2=LSTMAggregator(embed_dim,hidden_dim,bidirectional=bidirectional, cuda=cuda)
+        elif agg_method=='attention':
+            self.agg2=AttentionAggregator(embed_dim,hidden_dim, cuda=cuda)
+            
         self.enc2 = Encoder(embed_dim, embed_dim, adj_lists, self.agg2,
                        hidden_dim=hidden_dim, gcn=gcn, cuda=cuda)
 
@@ -114,3 +123,15 @@ class SupervisedGraphSage(nn.Module):
     def loss(self, nodes,features, labels):
         scores = self.forward(nodes,features)
         return self.xent(scores, labels.squeeze())
+
+
+class find_feature(nn.Module):
+    def __init__(self,features):
+        super(find_feature,self).__init__()
+        self.weight=features
+        
+    def forward(self,index):
+        return self.weight[index]
+    
+    
+    
